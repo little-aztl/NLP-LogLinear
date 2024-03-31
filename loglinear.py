@@ -44,7 +44,7 @@ np_result = result.toarray()
 labels = np.array(labels)
 print("Done!")
 
-num_epoch = 2
+num_epoch = 4
 data_size = 120000
 batch_size = 1024
 feature_size = 20000
@@ -139,4 +139,5 @@ for l in range(4):
     print("labels {}: precision={:.5f} recall={:.5f} F1-score={:.5f}".format(l + 1, precision, recall, f1_score))
 
 f1_score_ave /= 4
-print("Average F1-score: {:.5f}".format(f1_score_ave))
+print("Average F1-score: {:.3f}".format(f1_score_ave))
+print("Accuracy: {:.3f}".format(acc))

@@ -1,0 +1,214 @@
+\documentclass[12pt,letterpaper]{article}
+\usepackage[UTF8]{ctex}
+\usepackage{fullpage}
+\usepackage[top=2cm, bottom=4.5cm, left=2.5cm, right=2.5cm]{geometry}
+\usepackage{amsmath,amsthm,amsfonts,amssymb,amscd}
+\usepackage{lastpage}
+\usepackage{enumerate}
+\usepackage{fancyhdr}
+\usepackage{mathrsfs}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{minted}
+\usepackage{hyperref}
+\usepackage{dot2texi}
+\usepackage{tikz}
+\usepackage{float}
+\usepackage[pdf]{graphviz}
+\usetikzlibrary{automata,shapes,arrows}
+
+\hypersetup{%
+  colorlinks=true,
+  linkcolor=blue,
+  linkbordercolor={0 0 1}
+}
+
+\renewcommand\lstlistingname{Algorithm}
+\renewcommand\lstlistlistingname{Algorithms}
+\def\lstlistingautorefname{Alg.}
+
+\lstdefinestyle{Matlab}{
+    language        = matlab,
+    frame           = lines,
+    basicstyle      = \footnotesize,
+    keywordstyle    = \color{blue},
+    stringstyle     = \color{green},
+    commentstyle    = \color{red}\ttfamily
+}
+\setlength{\parindent}{0.0in}
+\setlength{\parskip}{0.05in}
+
+% Edit these as appropriate
+\newcommand\course{自然语言处理基础}
+\newcommand\hwnumber{1}                  % <-- homework number
+\newcommand\name{张子沐}                 % <-- Name
+\newcommand\ID{2200013115}           % <-- ID
+
+\pagestyle{fancyplain}
+\headheight 35pt
+\lhead{\name\\\ID}
+\chead{\textbf{\Large Homework \hwnumber}}
+\rhead{\course \\ \today}
+\lfoot{}
+\cfoot{}
+\rfoot{\small\thepage}
+\headsep 1.5em
+
+
+
+
+
+\begin{document}
+
+\section{数据预处理}
+
+对于语料库中的文本，首先进行如下的预处理操作。
+
+\begin{enumerate}[a).]
+    \item 取出文本中的所有标点符号，并用空格代替。
+    \item 用自然语言处理库 nltk 对文本进行切词。
+    \item 将所有单词的字母全部转变为小写字母。
+    \item 如果某个单词不是由字母组成，则将其过滤。
+    \item 将单词的形式进行标准化。
+\end{enumerate}
+
+\section{特征提取}
+
+采用 sklearn 中的 \verb|CountVectorizer| 和 \verb|TfidfTransformer| 对经过预处理过后的语料库进行特征提取，取语料库的出现频率最高的 20000 个 unigram 作为特征词，并将这些特征词的 Tf-IDF 作为文本的特征。
+
+值得说明的是，sklearn 中的 \verb|CountVectorizer| 会对语料库中的停用词进行过滤，所以在数据预处理中没有考虑停用词。
+
+\section{LogLinear 模型的实现}
+
+\subsection{模型参数}
+
+模型的参数是一个大小为 $4 \times d$ 的 Numpy 矩阵 $\boldsymbol{P}$,其中 $d=20000$ 表示特征的维度。
+
+\subsection{前向传播}
+
+模型的输入：大小为 $b\times d$ 的矩阵 $\boldsymbol{D}$，其中 $b$ 表示一个 batch 所包含的数据条数。
+
+模型的输出：
+\begin{equation*}
+    \mathrm{LogLinear(\boldsymbol{D})} = \mathrm{SoftMax}(\boldsymbol{D}\times \boldsymbol{P}^T)
+\end{equation*}
+
+\subsection{反向传播}
+
+设矩阵
+\begin{equation*}
+    \boldsymbol{P} = \begin{bmatrix}
+    \lambda_1\\ \lambda_2 \\ \lambda_3 \\ \lambda_4
+    \end{bmatrix}
+\end{equation*}
+
+其中 $\lambda_i$ 表示矩阵 $\boldsymbol{P}$ 的第 $i$ 个行向量，对应着标签为第 $i$ 类的特征参数。同时，设矩阵 $\boldsymbol{D}$ 的第 $i$ 个行向量为 $f_i$，表示第 $i$ 条数据，其真实的特征为 $y_i$。
+
+则优化目标为
+\begin{equation*}
+    \min\limits_{\lambda_{1\sim 4}} \Phi = \sum_{i=1}^b \left(-f_i \cdot \lambda_{y_i} + \log\left(\sum_{j=1}^4 e^{f_i \cdot \lambda_j}\right) \right)
+\end{equation*}
+
+求梯度：
+\begin{equation*}
+    \frac{\partial \Phi}{\partial \lambda_j} = \sum_{i=1}^n \left( -f_i\cdot \delta_{[y_i=j]} + f_i \frac{e^{f_i\cdot \lambda_j}}{\sum\limits_{k=1}^4 e^{f_i\cdot \lambda_k}} \right)
+\end{equation*}
+
+在每次迭代中进行一次梯度下降：
+\begin{equation*}
+    \lambda_i \gets \lambda_i - \frac{\partial \Phi}{\partial \lambda_i}\times \mathrm{lr}
+\end{equation*}
+
+其中，$\mathrm{lr}$ 表示学习率。
+
+
+\begin{minted}{python}
+class Log_Linear:
+    def __init__(self):
+        self.params = np.random.rand(4, feature_size).astype(np.float64)
+    def forward(self, data_batch : np.ndarray, labels_batch : np.ndarray, require_cache=True):
+        self.product = data_batch @ np.transpose(self.params)
+        result = np.argmax(self.product, axis=1)
+        acc = float(np.sum(result == labels_batch)) / labels_batch.shape[0]
+        if require_cache == False:
+            return result, acc
+        self.cache = data_batch
+        self.labels_cache = labels_batch
+        self.sum_exp = np.sum(np.exp(self.product), axis=1)
+        acc_params = self.params[labels_batch]
+        loss = float(np.mean(-np.sum(data_batch * acc_params, axis=1) + np.log(self.sum_exp)))
+        return result, loss, acc
+    def backward(self):
+        self.prob = np.exp(self.product) / np.expand_dims(self.sum_exp, axis=1)
+        self.grad = np.zeros_like(self.params, dtype=np.float64)
+        for i in range(self.cache.shape[0]):
+            self.grad += np.outer(self.prob[i], self.cache[i])
+            self.grad[self.labels_cache[i]] -= self.cache[i]
+
+        self.params -= self.grad * lr
+\end{minted}
+
+\subsection{训练策略}
+
+采用随机梯度下降法对模型进行训练。在一次 epoch 中，首先随机打乱训练集，每次取出 1024 条数据喂给模型进行训练，直至遍历完整个训练集。一共进行 4 次 epoch，随着 epoch 的增加，逐渐降低学习率。
+
+数据迭代器实现如下：
+
+\begin{minted}{python}
+class Data_Iterator:
+    def __init__(self, data, labels, batch_size):
+        self.data = data
+        self.labels = labels
+        self.btch_siz = batch_size
+    def __iter__(self):
+        self.order = np.random.permutation(data_size)
+        self.idx = 0
+        return self
+    def __len__(self):
+        return int(np.ceil(data_size / self.btch_siz))
+    def __next__(self):
+        if self.idx == data_size:
+            raise StopIteration
+        nxt = min(self.idx + self.btch_siz, data_size)
+        slce = self.order[self.idx : nxt]
+        self.idx = nxt
+        return self.data[slce].astype(np.float64), self.labels[slce]
+\end{minted}
+
+\section{实验结果}
+
+一共进行 4 次实验，实验结果如下。
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{c|c}
+        \textbf{次数} & \textbf{最后一次迭代的正确率}\\
+        \hline
+        1 & 0.896\\
+        2 & 0.873\\
+        3 & 0.880\\
+        4 & 0.927\\
+        统计 & 0.894$\pm$0.0208\\
+    \end{tabular}
+    \caption{在训练集上的表现}
+    \label{tab:my_label}
+\end{table}
+
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{c|c|c}
+        \textbf{次数} & \textbf{正确率} & \textbf{四个标签的平均 F1 分数}\\
+        \hline
+        1 & 0.896 & 0.896\\
+        2 & 0.896 & 0.896\\
+        3 & 0.897 & 0.896\\
+        4 & 0.896 & 0.896\\
+        统计 & 0.896$\pm$0.0004 &0.896$\pm$0 \\
+    \end{tabular}
+    \caption{在测试集上的表现}
+    \label{tab:my_label}
+\end{table}
+
+\end{document}
